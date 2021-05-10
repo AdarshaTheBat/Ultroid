@@ -22,6 +22,7 @@ import escapeHtml from '@youtwitface/escape-html';
 interface DownloadedSong {
     stream: Readable;
     info: {
+        path?: string;
         id: string;
         title: string;
         duration: number;
@@ -31,7 +32,7 @@ interface DownloadedSong {
 interface LocalFile {
     stream: Readable;
     info: {
-        path: string;
+        path?: string;
         id: string;
         title: string;
         duration: number;
@@ -39,7 +40,7 @@ interface LocalFile {
 }
 
 interface Queue {
-    url: string;
+    url: string | undefined;
     info: DownloadedSong['info'];
     from: {
         id: string | number;
@@ -305,7 +306,7 @@ export const leaveVc = (chatId: number) => {
     }
 }
 
-export const addToQueue = async (chat: Chat.SupergroupChat, url: string, by: Queue['from'], localFileObject?: LocalFile['info'],): Promise<number | null> => {
+export const addToQueue = async (chat: Chat.SupergroupChat, url: string, by: Queue['from'], localFileObject?: LocalFile,): Promise<number | null> => {
     if (!cache.has(chat.id)) {
         await createConnection(chat);
         return addToQueue(chat, url, by, localFileObject);
@@ -322,7 +323,7 @@ export const addToQueue = async (chat: Chat.SupergroupChat, url: string, by: Que
     if (url != '') {
         var songInfo: DownloadedSong['info'];
     } else {
-        var songInfo: LocalFile;
+        var songInfo: LocalFile['info'];
     }
     if (stream.finished) {
         try {
@@ -340,15 +341,18 @@ export const addToQueue = async (chat: Chat.SupergroupChat, url: string, by: Que
         }
         return 0;
     } else if (url != '') {
-        songInfo = await getSongInfo(url);
+        return queue.push({
+            url: url,
+            from: by,
+            info: await getSongInfo(url),
+        });
     } else {
-        songInfo = await getSongInfo('', localFileObject);
+        return queue.push({
+            url: localFileObject['info']['path'],
+            from: by,
+            info: await getSongInfo('', localFileObject),
+        });
     }
-    return queue.push({
-        url: url != '' ? url : localFileObject['info']['path'],
-        from: by,
-        info: songInfo
-    });
 };
 
 export const getCurrentSong = (chatId: number): CurrentSong | null => {
