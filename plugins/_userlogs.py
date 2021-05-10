@@ -85,7 +85,7 @@ async def all_messages_catcher(e):
         return
 
 
-@callback(re.compile(b"who(.*)"))
+@callback(re.compile("who(.*)"))
 async def _(e):
     wah = e.pattern_match.group(1).decode("UTF-8")
     y = await ultroid_bot.get_entity(int(wah))
@@ -153,7 +153,7 @@ async def when_ultd_added_to_chat(event):
 
 @callback(
     re.compile(
-        b"leave_ch_(.*)",
+        "leave_ch_(.*)",
     ),
 )
 @owner
@@ -161,7 +161,7 @@ async def leave_ch_at(event):
     cht = event.data_match.group(1).decode("UTF-8")
     ch_id, client = cht.split("|")
     if client == "bot":
-        await asst.delete_dialog(ch_id)
+        await asst.delete_dialog(int(ch_id))
     elif client == "user":
-        await ultroid.delete_dialog(ch_id)
+        await ultroid.delete_dialog(int(ch_id))
     await event.edit(f"Left `{ch_id}`")
