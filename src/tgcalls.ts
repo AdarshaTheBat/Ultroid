@@ -341,18 +341,19 @@ export const addToQueue = async (chat: Chat.SupergroupChat, url: string, by: Que
         }
         return 0;
     } else if (url != '') {
-        return queue.push({
+        queue.push({
             url: url,
             from: by,
             info: await getSongInfo(url),
         });
-    } else {
-        return queue.push({
+    } else if (localFileObject) {
+        queue.push({
             url: localFileObject['info']['path'],
             from: by,
             info: await getSongInfo('', localFileObject),
         });
     }
+    return queue.length;
 };
 
 export const getCurrentSong = (chatId: number): CurrentSong | null => {
