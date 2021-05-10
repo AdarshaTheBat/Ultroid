@@ -28,6 +28,16 @@ interface DownloadedSong {
     };
 }
 
+interface LocalFile {
+    stream: Readable;
+    info: {
+        path: string;
+        id: string;
+        title: string;
+        duration: number;
+    };
+}
+
 interface Queue {
     url: string;
     info: DownloadedSong['info'];
@@ -76,70 +86,103 @@ ws.on('message', (response: any) => {
     }
 });
 
-const downloadSong = async (url: string): Promise<DownloadedSong> => {
-    return new Promise((resolve, reject) => {
-        const ytdlChunks: string[] = [];
-        const ytdl = spawn('youtube-dl', ['-x', '--print-json', '-g', `${url}`]);
-
-        ytdl.stderr.on('data', data => console.error(data.toString()));
-
-        ytdl.stdout.on('data', data => {
-            ytdlChunks.push(data.toString());
+const downloadSong = async (url: string, localFileObject?: LocalFile): Promise<DownloadedSong | LocalFile> => {
+    if (url != '') {
+        return new Promise((resolve, reject) => {
+            const ytdlChunks: string[] = [];
+            const ytdl = spawn('youtube-dl', ['-x', '--print-json', '-g', `${url}`]);
+    
+            ytdl.stderr.on('data', (data) => console.error(data.toString()));
+    
+            ytdl.stdout.on('data', (data) => {
+                ytdlChunks.push(data.toString());
+            });
+    
+            ytdl.on('exit', (code) => {
+                if (code !== 0) {
+                    return reject();
+                }
+    
+                const ytdlData = ytdlChunks.join('');
+                const [inputUrl, _videoInfo] = ytdlData.split('\n');
+                const videoInfo = JSON.parse(_videoInfo);
+    
+                const ffmpeg = spawn('ffmpeg', ['-y', '-nostdin', '-i', inputUrl, ...ffmpegOptions.split(' ')]);
+    
+                resolve({
+                    stream: ffmpeg.stdout,
+                    info: {
+                        id: videoInfo.id,
+                        title: videoInfo.title,
+                        duration: videoInfo.duration,
+                    },
+                });
+            });
         });
-
-        ytdl.on('exit', code => {
-            if (code !== 0) {
-                return reject();
-            }
-
-            const ytdlData = ytdlChunks.join('');
-            const [inputUrl, _videoInfo] = ytdlData.split('\n');
-            const videoInfo = JSON.parse(_videoInfo);
-
-            const ffmpeg = spawn('ffmpeg', ['-y', '-nostdin', '-i', inputUrl, ...ffmpegOptions.split(' ')]);
-
+    } else if (url == '' && localFileObject) {
+        return new Promise((resolve, reject) => {
+            const ffmpeg = spawn('ffmpeg', ['-y', '-nostdin', '-i', localFileObject['info']['path'], ...ffmpegOptions.split(' ')]);
             resolve({
                 stream: ffmpeg.stdout,
                 info: {
-                    id: videoInfo.id,
-                    title: videoInfo.title,
-                    duration: videoInfo.duration,
+                    id: localFileObject['info']['id'],
+                    title: localFileObject['info']['title'],
+                    duration: localFileObject['info']['duration'],
                 },
             });
         });
-    });
+    } else {
+        return new Promise((resolve, reject) => {
+            return reject();
+        });
+    }
 };
 
 
-export const getSongInfo = async (url: string): Promise<DownloadedSong['info']> => {
-    return new Promise((resolve, reject) => {
-        const ytdlChunks: string[] = [];
-        const ytdl = spawn('youtube-dl', ['-x', '--print-json', '-g', `ytsearch:"${url}"`]);
-
-        ytdl.stderr.on('data', (data) => {
-            console.error(data.toString())
-        });
-
-        ytdl.stdout.on('data', (data) => {
-            ytdlChunks.push(data.toString());
-        });
-
-        ytdl.on('exit', code => {
-            if (code !== 0) {
-                return reject();
-            }
-
-            const ytdlData = ytdlChunks.join('');
-            const [inputUrl, _videoInfo] = ytdlData.split('\n');
-            const videoInfo = JSON.parse(_videoInfo);
-
-            resolve({
-                id: videoInfo.id,
-                title: videoInfo.title,
-                duration: videoInfo.duration,
+export const getSongInfo = async (url: string, localFileObject?: LocalFile): Promise<DownloadedSong['info'] | LocalFile['info']> => {
+    if (url != '') {
+        return new Promise((resolve, reject) => {
+            const ytdlChunks: string[] = [];
+            const ytdl = spawn('youtube-dl', ['-x', '--print-json', '-g', `ytsearch:"${url}"`]);
+    
+            ytdl.stderr.on('data', (data) => {
+                console.error(data.toString())
+            });
+    
+            ytdl.stdout.on('data', (data) => {
+                ytdlChunks.push(data.toString());
+            });
+    
+            ytdl.on('exit', (code) => {
+                if (code !== 0) {
+                    return reject();
+                }
+    
+                const ytdlData = ytdlChunks.join('');
+                const [inputUrl, _videoInfo] = ytdlData.split('\n');
+                const videoInfo = JSON.parse(_videoInfo);
+    
+                resolve({
+                    id: videoInfo.id,
+                    title: videoInfo.title,
+                    duration: videoInfo.duration,
+                });
             });
         });
-    });
+    } else if (url == '' && localFileObject) {
+        return new Promise((resolve, reject) => {
+            const ffmpeg = spawn('ffmpeg', ['-y', '-nostdin', '-i', localFileObject['info']['path'], ...ffmpegOptions.split(' ')]);
+            resolve({
+                id: localFileObject['info']['id'],
+                title: localFileObject['info']['title'],
+                duration: localFileObject['info']['duration'],
+            });
+        });
+    } else {
+        return new Promise((resolve, reject) => {
+            return reject();
+        });
+    }
 };
 
 export const closeConnection = async(): Promise<void> => {
@@ -262,21 +305,25 @@ export const leaveVc = (chatId: number) => {
     }
 }
 
-export const addToQueue = async (chat: Chat.SupergroupChat, url: string, by: Queue['from']): Promise<number | null> => {
+export const addToQueue = async (chat: Chat.SupergroupChat, url: string, by: Queue['from'], localFileObject?: LocalFile['info'],): Promise<number | null> => {
     if (!cache.has(chat.id)) {
         await createConnection(chat);
-        return addToQueue(chat, url, by);
+        return addToQueue(chat, url, by, localFileObject);
     }
 
     const connection = cache.get(chat.id)!;
     if (connection.leftVC) {
         cache.delete(chat.id);
         await createConnection(chat);
-        return addToQueue(chat, url, by);
+        return addToQueue(chat, url, by, localFileObject);
     }
     const { stream, queue } = connection;
 
-    let songInfo: DownloadedSong['info'];
+    if (url != '') {
+        var songInfo: DownloadedSong['info'];
+    } else {
+        var songInfo: LocalFile;
+    }
     if (stream.finished) {
         try {
             const song = await downloadSong(url);
@@ -292,11 +339,13 @@ export const addToQueue = async (chat: Chat.SupergroupChat, url: string, by: Que
             return -1;
         }
         return 0;
-    } else {
+    } else if (url != '') {
         songInfo = await getSongInfo(url);
+    } else {
+        songInfo = await getSongInfo('', localFileObject);
     }
     return queue.push({
-        url: url,
+        url: url != '' ? url : localFileObject['info']['path'],
         from: by,
         info: songInfo
     });

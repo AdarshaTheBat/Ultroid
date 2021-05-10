@@ -20,22 +20,72 @@ export const playHandler = Composer.command('play', async (ctx) => {
     if (chat.type !== 'supergroup') {
         return await ctx.reply('I can only play in groups.');
     }
-    try {
-        if (ctx.message.reply_to_message && JSON.parse(JSON.stringify(ctx.message.reply_to_message)).audio) {
+
+    if (ctx.message.reply_to_message) {
+        if (JSON.parse(JSON.stringify(ctx.message.reply_to_message)).audio) {
             await ctx.reply(JSON.stringify(ctx.message.reply_to_message));
             const file = JSON.parse(JSON.stringify(ctx.message.reply_to_message)).audio;
+            const fileDuration = JSON.parse(JSON.stringify(ctx.message.reply_to_message)).audio.duration;
             const fileLink = (await ctx.telegram.getFileLink(file.file_id)).href;
             const fileTitle = file.title;
             const filePerformer = file.performer;
             await ctx.reply(fileLink);
             await ctx.reply(fileTitle);
             await ctx.reply(filePerformer);
+            const index = await addToQueue(chat, '', {
+                id: ctx.from.id,
+                f_name: ctx.from.first_name
+            }, {
+                path: fileLink,
+                id: ctx.from.id,
+                title: fileTitle,
+                duration: fileDuration,
+            });
+            const song = getCurrentSong(chat.id);
+            switch (index) {
+                case -1:
+                    await ctx.reply("Failed to download song ...")
+                    break;
+                case 0:
+                    if (song) {
+                        const { id, title, duration } = song.song;
+                        ctx.replyWithPhoto("https://thumbs.dreamstime.com/b/coming-soon-coming-soon-message-note-hands-holding-paper-sign-announcement-113675278.jpg", {
+                            caption: `<b>Playing : </b> <a href="${fileLink}">${escapeHtml(title)}</a>\n` +
+                                `<b>Duration: </b>${getDuration(duration)}s\n` +
+                                `<b>Requested by :</b> <a href="tg://user?id=${song.by.id}">${song.by.f_name}</a>`,
+                            parse_mode: 'HTML',
+                            ...Markup.inlineKeyboard([
+                                [
+                                    Markup.button.callback('Pause', `pause:${id}`),
+                                    Markup.button.callback('Skip', `skip:${id}`)
+                                ],
+                                [
+                                    Markup.button.callback('Exit', `exitVc`),
+                                ]
+                            ])
+                        })
+                    }
+                    break;
+                default:
+                    const queue = getQueue(chat.id);
+                    if (queue) {
+                        let queueId = queue.length - 1
+                        const { info, from } = queue[queueId];
+                        await ctx.replyWithHTML(`<b>Queued :</b> <a href="${fileLink}">${escapeHtml(info.title)}</a> (${getDuration(info.duration)})\n` +
+                            `<b>At position ${index}.</b>\n` +
+                            `<b>Requested By :</b> <a href="tg://user?id=${from.id}">${from.f_name}</a>`, {
+                            disable_web_page_preview: true,
+                        });
+                    } else {
+                        await log("Queue not found in " + chat.title)
+                    }
+            }
+            return;
         } else {
             return await ctx.reply("Its Not A Audio File...");
         }
-    } catch (error) {
-        console.log(error.message);
     }
+    
 
     const [ commandEntity ] = ctx.message.entities!;
     const text = ctx.message.text.slice(commandEntity.length + 1) || deunionize(ctx.message.reply_to_message)?.text;
